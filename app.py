@@ -1265,6 +1265,11 @@ with tab9:
 with tab10:
     st.subheader("10. Data Explorer & Power BI Ready Marts")
     st.caption("Search, inspect, and export your filtered Star Schema datasets.")
+    st.markdown("#### Power BI Connection")
+    st.write(
+        "Import the CSV files from `data/exports/` or connect Power BI to "
+        "`database/sales_analytics.db`. The setup guides are in the `powerbi/` folder."
+    )
 
     search_t = st.text_input("🔍 Quick Search (Customer, Product, City, or Order ID)", placeholder="Type to filter...")
 
