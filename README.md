@@ -240,7 +240,7 @@ This project is open-source under the [MIT License](LICENSE).
 
 ## 👤 Author
 
-**Nikita Sharma**  
+**Nikita Pawar**  
 MSc IT — University of Mumbai  
 G. M. Vedak College of Science, Tala, Raigad
 
