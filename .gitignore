@@ -24,6 +24,7 @@ Thumbs.db
 
 # Data / generated output
 *.log
+data/user_profiles.csv
 *.sqlite3
 *.db
 !database/
