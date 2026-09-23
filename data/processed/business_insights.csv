@@ -1,1 +1,4 @@
 Severity,Category,Title,Insight
+Positive,Revenue,Sales volume is measurable,"The dataset contains 30 orders generating 16,605 in net sales."
+Positive,Profitability,Profit margin baseline,"Current net profit is 3,389, equal to a 20.4% margin."
+Warning,Data quality,Review generated outputs,"Run the full ETL pipeline when production ML forecasts, anomalies, and insights are available."

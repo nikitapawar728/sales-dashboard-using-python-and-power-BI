@@ -28,6 +28,7 @@ try:
         EXPORTS_DIR,
         SALES_REQUIRED_COLUMNS,
         ensure_demo_data,
+        ensure_demo_ml_outputs,
     )
     try:
         from src.config import ensure_power_bi_assets
@@ -51,9 +52,11 @@ except (ImportError, ModuleNotFoundError):
     EXPORTS_DIR = config_module.EXPORTS_DIR
     SALES_REQUIRED_COLUMNS = config_module.SALES_REQUIRED_COLUMNS
     ensure_demo_data = config_module.ensure_demo_data
+    ensure_demo_ml_outputs = getattr(config_module, "ensure_demo_ml_outputs", lambda: None)
     ensure_power_bi_assets = getattr(config_module, "ensure_power_bi_assets", lambda: None)
 
 ensure_demo_data()
+ensure_demo_ml_outputs()
 ensure_power_bi_assets()
 
 # -----------------------------------------------------------------------------

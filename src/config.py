@@ -71,6 +71,13 @@ def ensure_csv_header(path, columns):
         pd.DataFrame(columns=columns).to_csv(path, index=False)
 
 
+def csv_has_rows(path):
+    try:
+        return not pd.read_csv(path, nrows=1).empty
+    except (FileNotFoundError, pd.errors.EmptyDataError):
+        return False
+
+
 def ensure_demo_data():
     """Create a sample sales dataset covering every column the dashboard expects."""
     empty_files = [
@@ -161,6 +168,76 @@ def ensure_demo_data():
 
     for path, columns in empty_files:
         ensure_csv_header(path, columns)
+
+
+def ensure_demo_ml_outputs():
+    """Create useful fallback ML outputs when the optional ETL outputs are empty."""
+    try:
+        sales = pd.read_csv(MASTER_SALES_FILE)
+    except (FileNotFoundError, pd.errors.EmptyDataError):
+        return
+    if sales.empty or "Order_Date" not in sales.columns:
+        return
+
+    sales["Order_Date"] = pd.to_datetime(sales["Order_Date"], errors="coerce")
+    sales["Net_Sales"] = pd.to_numeric(sales.get("Net_Sales"), errors="coerce").fillna(0)
+    sales["Profit"] = pd.to_numeric(sales.get("Profit"), errors="coerce").fillna(0)
+    sales = sales.dropna(subset=["Order_Date"]).copy()
+    if sales.empty:
+        return
+
+    if not csv_has_rows(FORECAST_FILE):
+        daily = sales.groupby("Order_Date", as_index=False)["Net_Sales"].sum()
+        daily = daily.rename(columns={"Net_Sales": "actual_sales"})
+        baseline = float(daily["actual_sales"].tail(7).mean())
+        last_date = daily["Order_Date"].max()
+        future_dates = pd.date_range(last_date + pd.Timedelta(days=1), periods=90, freq="D")
+        future = pd.DataFrame({
+            "is_forecast": 1,
+            "forecast_date": future_dates,
+            "projected_sales": baseline,
+            "actual_sales": pd.NA,
+            "lower_confidence_bound": baseline * 0.85,
+            "upper_confidence_bound": baseline * 1.15,
+        })
+        history = daily.rename(columns={"Order_Date": "forecast_date"})
+        history["is_forecast"] = 0
+        history["projected_sales"] = pd.NA
+        history["lower_confidence_bound"] = pd.NA
+        history["upper_confidence_bound"] = pd.NA
+        pd.concat([history[future.columns], future], ignore_index=True).to_csv(FORECAST_FILE, index=False)
+
+    if not csv_has_rows(ANOMALIES_FILE):
+        anomalies = sales.copy()
+        for column in ["Quantity", "Discount_Pct"]:
+            if column not in anomalies.columns:
+                anomalies[column] = 0
+            anomalies[column] = pd.to_numeric(anomalies[column], errors="coerce").fillna(0)
+        anomalies["Profit_Margin_Pct"] = (anomalies["Profit"] / anomalies["Net_Sales"].replace(0, pd.NA) * 100).fillna(0)
+        threshold = anomalies["Net_Sales"].quantile(0.95)
+        anomalies["is_anomaly"] = (anomalies["Net_Sales"] >= threshold).astype(int)
+        anomalies["anomaly_reason"] = anomalies["is_anomaly"].map({1: "High-value sales outlier", 0: ""})
+        for column, fallback in [("Product_Name", "Product_ID"), ("Customer_Name", "Customer_ID")]:
+            if column not in anomalies.columns:
+                source_column = fallback if fallback in anomalies.columns else None
+                anomalies[column] = anomalies[source_column] if source_column else "Unknown"
+        anomaly_columns = [
+            "is_anomaly", "Net_Sales", "Profit_Margin_Pct", "Order_ID",
+            "Product_Name", "anomaly_reason", "Order_Date", "Customer_Name",
+            "Quantity", "Discount_Pct", "Profit"
+        ]
+        anomalies[anomaly_columns].to_csv(ANOMALIES_FILE, index=False)
+
+    if not csv_has_rows(INSIGHTS_FILE):
+        revenue = float(sales["Net_Sales"].sum())
+        profit = float(sales["Profit"].sum())
+        orders = int(sales["Order_ID"].nunique()) if "Order_ID" in sales.columns else len(sales)
+        margin = (profit / revenue * 100) if revenue else 0
+        pd.DataFrame([
+            {"Severity": "Positive", "Category": "Revenue", "Title": "Sales volume is measurable", "Insight": f"The dataset contains {orders:,} orders generating {revenue:,.0f} in net sales."},
+            {"Severity": "Positive", "Category": "Profitability", "Title": "Profit margin baseline", "Insight": f"Current net profit is {profit:,.0f}, equal to a {margin:.1f}% margin."},
+            {"Severity": "Warning", "Category": "Data quality", "Title": "Review generated outputs", "Insight": "Run the full ETL pipeline when production ML forecasts, anomalies, and insights are available."},
+        ]).to_csv(INSIGHTS_FILE, index=False)
 
 
 def ensure_power_bi_assets():
