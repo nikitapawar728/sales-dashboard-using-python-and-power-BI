@@ -963,8 +963,14 @@ with tab6:
             "Rohan Deshmukh": 52000000, "Sneha Patel": 46000000, "Amit Shah": 38000000,
             "Debanjan Banerjee": 36000000, "Tanushree Das": 32000000, "Manoj Tiwari": 28000000
         }
-        rep_df["Target"] = rep_df["Sales_Representative"].map(lambda r: target_map.get(r, 40000000))
-        rep_df["Attainment_%"] = ((rep_df["Revenue"] / rep_df["Target"]) * 100).round(1)
+        rep_df["Target"] = pd.to_numeric(
+            rep_df["Sales_Representative"].map(lambda r: target_map.get(r, 40000000)),
+            errors="coerce"
+        ).fillna(40000000).astype(float)
+        rep_df["Target"] = rep_df["Target"].replace(0, np.nan)
+        rep_df["Attainment_%"] = (
+            rep_df["Revenue"].astype(float).div(rep_df["Target"].replace(0, np.nan)).mul(100)
+        ).round(1)
 
         fig_rep = px.bar(
             rep_df,
