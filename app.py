@@ -126,6 +126,24 @@ st.markdown("""
     .insight-warning { border-left-color: #F59E0B; }
     .insight-alert { border-left-color: #EF4444; }
 
+    /* Filter Panel */
+    .filter-panel {
+        background: linear-gradient(180deg, #FFFFFF 0%, #F8FAFC 100%);
+        border: 1px solid #E2E8F0;
+        border-radius: 18px;
+        padding: 1rem 1.1rem 0.6rem;
+        margin: 0.4rem 0 1rem 0;
+        box-shadow: 0 4px 12px rgba(15, 23, 42, 0.04);
+    }
+    .filter-panel .stMultiSelect,
+    .filter-panel .stDateInput {
+        background: #FFFFFF;
+    }
+    .filter-panel [data-testid="stHorizontalBlock"] {
+        gap: 1rem;
+        align-items: flex-end;
+    }
+
     /* Tabs Styling */
     .stTabs [data-baseweb="tab-list"] {
         gap: 6px;
@@ -440,37 +458,43 @@ if st.session_state.auth_open:
     login_flow()
 
 st.markdown("### 🎛️ Interactive Filters")
+st.markdown('<div class="filter-panel">', unsafe_allow_html=True)
 
-# Date Range Slicer
-min_date = df_sales["Order_Date"].min().date()
-max_date = df_sales["Order_Date"].max().date()
+col_filter_1, col_filter_2, col_filter_3 = st.columns(3)
 
-date_selection = st.date_input(
-    "Date Range",
-    value=(min_date, max_date),
-    min_value=min_date,
-    max_value=max_date
-)
-if isinstance(date_selection, (tuple, list)) and len(date_selection) == 2:
-    start_date, end_date = date_selection
-else:
-    start_date, end_date = min_date, max_date
+with col_filter_1:
+    min_date = df_sales["Order_Date"].min().date()
+    max_date = df_sales["Order_Date"].max().date()
+    date_selection = st.date_input(
+        "Date Range",
+        value=(min_date, max_date),
+        min_value=min_date,
+        max_value=max_date
+    )
+    if isinstance(date_selection, (tuple, list)) and len(date_selection) == 2:
+        start_date, end_date = date_selection
+    else:
+        start_date, end_date = min_date, max_date
 
-# Region Slicer
-all_regions = sorted(df_sales["Region"].dropna().unique().tolist())
-selected_regions = st.multiselect("Region", options=all_regions, default=all_regions)
+with col_filter_2:
+    all_regions = sorted(df_sales["Region"].dropna().unique().tolist())
+    selected_regions = st.multiselect("Region", options=all_regions, default=all_regions)
 
-# Category Slicer
-all_categories = sorted(df_sales["Category"].dropna().unique().tolist())
-selected_categories = st.multiselect("Category", options=all_categories, default=all_categories)
+with col_filter_3:
+    all_categories = sorted(df_sales["Category"].dropna().unique().tolist())
+    selected_categories = st.multiselect("Category", options=all_categories, default=all_categories)
 
-# Sales Channel Slicer
-all_channels = sorted(df_sales["Sales_Channel"].dropna().unique().tolist()) if "Sales_Channel" in df_sales.columns else []
-selected_channels = st.multiselect("Sales Channel", options=all_channels, default=all_channels)
+col_filter_4, col_filter_5 = st.columns(2)
 
-# Sales Rep Slicer
-all_reps = sorted(df_sales["Sales_Representative"].dropna().unique().tolist()) if "Sales_Representative" in df_sales.columns else []
-selected_reps = st.multiselect("Sales Representative", options=all_reps, default=all_reps)
+with col_filter_4:
+    all_channels = sorted(df_sales["Sales_Channel"].dropna().unique().tolist()) if "Sales_Channel" in df_sales.columns else []
+    selected_channels = st.multiselect("Sales Channel", options=all_channels, default=all_channels)
+
+with col_filter_5:
+    all_reps = sorted(df_sales["Sales_Representative"].dropna().unique().tolist()) if "Sales_Representative" in df_sales.columns else []
+    selected_reps = st.multiselect("Sales Representative", options=all_reps, default=all_reps)
+
+st.markdown('</div>', unsafe_allow_html=True)
 
 st.markdown("---")
 st.caption(f"📅 Active Range: {min_date} to {max_date}")
