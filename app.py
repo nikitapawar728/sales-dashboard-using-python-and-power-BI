@@ -23,8 +23,17 @@ for candidate in (BASE_DIR, BASE_DIR.parent):
         sys.path.insert(0, candidate_str)
 
 try:
-    from src.config import PROCESSED_DATA_DIR, EXPORTS_DIR, SALES_REQUIRED_COLUMNS, ensure_demo_data
-except ModuleNotFoundError:
+    from src.config import (
+        PROCESSED_DATA_DIR,
+        EXPORTS_DIR,
+        SALES_REQUIRED_COLUMNS,
+        ensure_demo_data,
+    )
+    try:
+        from src.config import ensure_power_bi_assets
+    except ImportError:
+        ensure_power_bi_assets = lambda: None
+except (ImportError, ModuleNotFoundError):
     import importlib.util
 
     config_candidates = [
@@ -42,8 +51,10 @@ except ModuleNotFoundError:
     EXPORTS_DIR = config_module.EXPORTS_DIR
     SALES_REQUIRED_COLUMNS = config_module.SALES_REQUIRED_COLUMNS
     ensure_demo_data = config_module.ensure_demo_data
+    ensure_power_bi_assets = getattr(config_module, "ensure_power_bi_assets", lambda: None)
 
 ensure_demo_data()
+ensure_power_bi_assets()
 
 # -----------------------------------------------------------------------------
 # Streamlit Page Configuration
@@ -304,7 +315,7 @@ def read_csv_safely(path, columns=None):
     if columns:
         for col in columns:
             if col not in df.columns:
-                df[col] = pd.Series(dtype="object")
+                df[col] = pd.NA
     return df
 
 
@@ -325,8 +336,17 @@ def load_analytics_datasets():
     anomalies_df = read_csv_safely(anomalies_path)
     insights_df = read_csv_safely(insights_path)
 
+    numeric_columns = [
+        "Quantity", "Unit_Price", "Discount_Pct", "Net_Sales",
+        "Profit", "Profit_Margin_Pct"
+    ]
+    for column in numeric_columns:
+        if column in master_df.columns:
+            master_df[column] = pd.to_numeric(master_df[column], errors="coerce")
+
     if not master_df.empty and "Order_Date" in master_df.columns:
-        master_df["Order_Date"] = pd.to_datetime(master_df["Order_Date"])
+        master_df["Order_Date"] = pd.to_datetime(master_df["Order_Date"], errors="coerce")
+        master_df = master_df.dropna(subset=["Order_Date"]).copy()
         master_df["Year"] = master_df["Order_Date"].dt.year
         master_df["Month"] = master_df["Order_Date"].dt.month
         master_df["YearMonth"] = master_df["Order_Date"].dt.to_period("M").astype(str)
@@ -335,7 +355,9 @@ def load_analytics_datasets():
         master_df["Quarter"] = "Q" + master_df["Order_Date"].dt.quarter.astype(str)
 
     if not forecast_df.empty and "forecast_date" in forecast_df.columns:
-        forecast_df["forecast_date"] = pd.to_datetime(forecast_df["forecast_date"])
+        forecast_df["forecast_date"] = pd.to_datetime(
+            forecast_df["forecast_date"], errors="coerce"
+        )
 
     return master_df, rfm_df, forecast_df, metrics_df, anomalies_df, insights_df
 
@@ -455,7 +477,6 @@ def format_money(val):
 
 if st.session_state.auth_open:
     st.markdown("---")
-    login_flow()
 
 st.markdown("### 🎛️ Interactive Filters")
 st.markdown('<div class="filter-panel">', unsafe_allow_html=True)
@@ -888,7 +909,8 @@ with tab4:
 
     # RFM K-Means Persona Breakdown
     st.markdown("#### 👥 Machine Learning RFM Customer Clusters")
-    if not df_rfm.empty:
+    rfm_columns = {"Segment_Label", "Customer_ID", "Monetary", "Frequency"}
+    if not df_rfm.empty and rfm_columns.issubset(df_rfm.columns):
         col_rfm_p, col_rfm_t = st.columns([1, 1])
 
         rfm_sum = df_rfm.groupby("Segment_Label").agg(
@@ -1025,7 +1047,11 @@ with tab6:
 with tab7:
     st.subheader("7. Machine Learning Sales Time-Series Forecasting")
 
-    if not df_forecast.empty:
+    forecast_columns = {
+        "is_forecast", "forecast_date", "projected_sales",
+        "actual_sales", "lower_confidence_bound", "upper_confidence_bound"
+    }
+    if not df_forecast.empty and forecast_columns.issubset(df_forecast.columns):
         hist_s = df_forecast[df_forecast["is_forecast"] == 0].sort_values("forecast_date").tail(180)
         fut_s = df_forecast[df_forecast["is_forecast"] == 1].sort_values("forecast_date")
 
@@ -1117,7 +1143,8 @@ with tab8:
     st.subheader("8. Automated Business Insights & Diagnostic Engine")
     st.caption("Algorithmically generated executive takeaways and risk alerts.")
 
-    if not df_insights.empty:
+    insight_columns = {"Severity", "Category", "Title", "Insight"}
+    if not df_insights.empty and insight_columns.issubset(df_insights.columns):
         for _, row in df_insights.iterrows():
             severity_class = "insight-positive" if row["Severity"] == "Positive" else ("insight-warning" if row["Severity"] == "Warning" else "insight-alert")
             st.markdown(f"""
@@ -1138,7 +1165,12 @@ with tab9:
     st.subheader("9. Machine Learning Anomaly Detection (Isolation Forest)")
     st.caption("Identifies multivariate pricing outliers, negative margin spikes, and excessive discounts.")
 
-    if not df_anomalies.empty and "is_anomaly" in df_anomalies.columns:
+    anomaly_columns = {
+        "is_anomaly", "Net_Sales", "Profit_Margin_Pct", "Order_ID",
+        "Product_Name", "anomaly_reason", "Order_Date", "Customer_Name",
+        "Quantity", "Discount_Pct", "Profit"
+    }
+    if not df_anomalies.empty and anomaly_columns.issubset(df_anomalies.columns):
         anomalies_only = df_anomalies[df_anomalies["is_anomaly"] == 1]
         
         a_col1, a_col2 = st.columns(2)

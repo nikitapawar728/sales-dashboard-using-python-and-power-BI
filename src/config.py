@@ -1,4 +1,6 @@
 from pathlib import Path
+import re
+import sqlite3
 
 import pandas as pd
 
@@ -7,8 +9,10 @@ DATA_DIR = BASE_DIR / "data"
 RAW_DATA_DIR = DATA_DIR / "raw"
 PROCESSED_DATA_DIR = DATA_DIR / "processed"
 EXPORTS_DIR = DATA_DIR / "exports"
+DATABASE_DIR = BASE_DIR / "database"
+SALES_DATABASE_FILE = DATABASE_DIR / "sales_analytics.db"
 
-for directory in (DATA_DIR, RAW_DATA_DIR, PROCESSED_DATA_DIR, EXPORTS_DIR):
+for directory in (DATA_DIR, RAW_DATA_DIR, PROCESSED_DATA_DIR, EXPORTS_DIR, DATABASE_DIR):
     directory.mkdir(parents=True, exist_ok=True)
 
 # Common dataset filenames used by the dashboard.
@@ -18,6 +22,15 @@ FORECAST_FILE = PROCESSED_DATA_DIR / "ml_sales_forecast.csv"
 MODEL_METRICS_FILE = PROCESSED_DATA_DIR / "forecast_model_metrics.csv"
 ANOMALIES_FILE = PROCESSED_DATA_DIR / "ml_sales_anomalies.csv"
 INSIGHTS_FILE = PROCESSED_DATA_DIR / "business_insights.csv"
+
+POWER_BI_DATASETS = {
+    "fact_sales": MASTER_SALES_FILE,
+    "customer_segments": RFM_SEGMENTS_FILE,
+    "sales_forecast": FORECAST_FILE,
+    "forecast_model_metrics": MODEL_METRICS_FILE,
+    "sales_anomalies": ANOMALIES_FILE,
+    "business_insights": INSIGHTS_FILE,
+}
 
 SALES_REQUIRED_COLUMNS = [
     "Order_ID",
@@ -130,3 +143,34 @@ def ensure_demo_data():
     for path, columns in empty_files:
         if not path.exists() or path.stat().st_size == 0:
             pd.DataFrame(columns=columns).to_csv(path, index=False)
+
+
+def ensure_power_bi_assets():
+    """Export processed datasets to CSV and refresh the Power BI SQLite source."""
+    export_paths = []
+    for table_name, source_path in POWER_BI_DATASETS.items():
+        if not source_path.exists():
+            continue
+        export_path = EXPORTS_DIR / f"{table_name}.csv"
+        try:
+            dataset = pd.read_csv(source_path)
+        except pd.errors.EmptyDataError:
+            dataset = pd.DataFrame()
+        dataset.to_csv(export_path, index=False)
+        export_paths.append((table_name, source_path))
+
+    with sqlite3.connect(SALES_DATABASE_FILE) as connection:
+        for table_name, source_path in export_paths:
+            safe_table_name = re.sub(r"[^a-zA-Z0-9_]", "_", table_name)
+            try:
+                dataset = pd.read_csv(source_path)
+            except pd.errors.EmptyDataError:
+                dataset = pd.DataFrame()
+            if dataset.empty and len(dataset.columns) == 0:
+                dataset = pd.DataFrame({"record_id": pd.Series(dtype="int64")})
+            dataset.to_sql(
+                safe_table_name,
+                connection,
+                if_exists="replace",
+                index=False,
+            )
