@@ -236,6 +236,8 @@ if "guest_mode" not in st.session_state:
     st.session_state.guest_mode = False
 if "auth_open" not in st.session_state:
     st.session_state.auth_open = False
+if "profile_page" not in st.session_state:
+    st.session_state.profile_page = False
 
 
 def login_flow():
@@ -269,6 +271,8 @@ def login_flow():
                             "role": profile_row.get("role", "Viewer"),
                         }
                         st.session_state.guest_mode = False
+                        st.session_state.auth_open = False
+                        st.session_state.profile_page = True
                         st.success(f"Welcome back, {profile_row.get('full_name', username.strip())}!")
                         st.rerun()
 
@@ -322,6 +326,8 @@ def login_flow():
                         "role": role,
                     }
                     st.session_state.guest_mode = False
+                    st.session_state.auth_open = False
+                    st.session_state.profile_page = True
                     st.success("Profile created successfully. You are now signed in.")
                     st.rerun()
 
@@ -534,6 +540,46 @@ def format_money(val):
     elif abs(val) >= 1e3:
         return f"{curr_symbol}{val / 1e3:.1f}k"
     return f"{curr_symbol}{val:,.0f}"
+
+
+if st.session_state.profile_page and st.session_state.user is not None:
+    st.title("👤 My Profile")
+    st.caption("Your account is active. Review your details below or continue to the analytics dashboard.")
+    profile_col1, profile_col2 = st.columns(2)
+    with profile_col1:
+        st.metric("Full Name", st.session_state.user["full_name"])
+        st.metric("Username", st.session_state.user["username"])
+    with profile_col2:
+        st.metric("Role", st.session_state.user["role"])
+        st.metric("Email", st.session_state.user["email"] or "Not provided")
+
+    st.markdown("### Profile Settings")
+    profile_name = st.text_input("Full Name", value=st.session_state.user["full_name"], key="profile_page_name")
+    profile_email = st.text_input("Email", value=st.session_state.user["email"], key="profile_page_email")
+    profile_role_options = ["Viewer", "Manager", "Analyst", "Admin"]
+    profile_role = st.selectbox(
+        "Role",
+        profile_role_options,
+        index=profile_role_options.index(st.session_state.user["role"]) if st.session_state.user["role"] in profile_role_options else 0,
+        key="profile_page_role",
+    )
+    profile_actions = st.columns(2)
+    with profile_actions[0]:
+        if st.button("Save Profile", key="profile_page_save", use_container_width=True):
+            profiles = load_profiles()
+            matches = profiles.index[profiles["username"].astype(str).str.lower() == st.session_state.user["username"].lower()].tolist()
+            if matches:
+                profiles.loc[matches[0], ["full_name", "email", "role"]] = [profile_name.strip(), profile_email.strip(), profile_role]
+                save_profiles(profiles)
+                st.session_state.user.update({"full_name": profile_name.strip(), "email": profile_email.strip(), "role": profile_role})
+                st.success("Profile updated successfully.")
+                st.rerun()
+    with profile_actions[1]:
+        if st.button("Go to Dashboard", key="profile_page_dashboard", use_container_width=True):
+            st.session_state.profile_page = False
+            st.rerun()
+
+    st.stop()
 
 
 if st.session_state.auth_open:
