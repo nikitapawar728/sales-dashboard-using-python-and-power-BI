@@ -14,12 +14,36 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import streamlit as st
 
-# Ensure project root is in sys.path
-BASE_DIR = Path(__file__).resolve().parent.parent
-if str(BASE_DIR) not in sys.path:
-    sys.path.insert(0, str(BASE_DIR))
+# Ensure project root and its parent are in sys.path for deployment environments
+# that mount the repo under a different directory structure.
+BASE_DIR = Path(__file__).resolve().parent
+for candidate in (BASE_DIR, BASE_DIR.parent):
+    candidate_str = str(candidate)
+    if candidate_str not in sys.path:
+        sys.path.insert(0, candidate_str)
 
-from src.config import PROCESSED_DATA_DIR, EXPORTS_DIR
+try:
+    from src.config import PROCESSED_DATA_DIR, EXPORTS_DIR, SALES_REQUIRED_COLUMNS, ensure_demo_data
+except ModuleNotFoundError:
+    import importlib.util
+
+    config_candidates = [
+        BASE_DIR / "src" / "config.py",
+        BASE_DIR.parent / "src" / "config.py",
+    ]
+    config_path = next((p for p in config_candidates if p.exists()), None)
+    if config_path is None:
+        raise
+
+    spec = importlib.util.spec_from_file_location("compat_config", config_path)
+    config_module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(config_module)
+    PROCESSED_DATA_DIR = config_module.PROCESSED_DATA_DIR
+    EXPORTS_DIR = config_module.EXPORTS_DIR
+    SALES_REQUIRED_COLUMNS = config_module.SALES_REQUIRED_COLUMNS
+    ensure_demo_data = config_module.ensure_demo_data
+
+ensure_demo_data()
 
 # -----------------------------------------------------------------------------
 # Streamlit Page Configuration
@@ -251,6 +275,21 @@ def login_flow():
 # -----------------------------------------------------------------------------
 # Data Loader (Cached for fast interactive exploration)
 # -----------------------------------------------------------------------------
+def read_csv_safely(path, columns=None):
+    """Return an empty DataFrame for missing or empty CSVs instead of crashing."""
+    if not path.exists() or path.stat().st_size == 0:
+        return pd.DataFrame(columns=columns or [])
+    try:
+        df = pd.read_csv(path)
+    except pd.errors.EmptyDataError:
+        return pd.DataFrame(columns=columns or [])
+    if columns:
+        for col in columns:
+            if col not in df.columns:
+                df[col] = pd.Series(dtype="object")
+    return df
+
+
 @st.cache_data(ttl=600)
 def load_analytics_datasets():
     """Loads cleaned master data, customer segments, forecasting, anomalies, and insights."""
@@ -261,14 +300,14 @@ def load_analytics_datasets():
     anomalies_path = PROCESSED_DATA_DIR / "ml_sales_anomalies.csv"
     insights_path = PROCESSED_DATA_DIR / "business_insights.csv"
 
-    master_df = pd.read_csv(master_path) if master_path.exists() else pd.DataFrame()
-    rfm_df = pd.read_csv(rfm_path) if rfm_path.exists() else pd.DataFrame()
-    forecast_df = pd.read_csv(forecast_path) if forecast_path.exists() else pd.DataFrame()
-    metrics_df = pd.read_csv(metrics_path) if metrics_path.exists() else pd.DataFrame()
-    anomalies_df = pd.read_csv(anomalies_path) if anomalies_path.exists() else pd.DataFrame()
-    insights_df = pd.read_csv(insights_path) if insights_path.exists() else pd.DataFrame()
+    master_df = read_csv_safely(master_path, columns=SALES_REQUIRED_COLUMNS)
+    rfm_df = read_csv_safely(rfm_path)
+    forecast_df = read_csv_safely(forecast_path)
+    metrics_df = read_csv_safely(metrics_path)
+    anomalies_df = read_csv_safely(anomalies_path)
+    insights_df = read_csv_safely(insights_path)
 
-    if not master_df.empty:
+    if not master_df.empty and "Order_Date" in master_df.columns:
         master_df["Order_Date"] = pd.to_datetime(master_df["Order_Date"])
         master_df["Year"] = master_df["Order_Date"].dt.year
         master_df["Month"] = master_df["Order_Date"].dt.month
@@ -285,8 +324,8 @@ def load_analytics_datasets():
 
 df_sales, df_rfm, df_forecast, df_metrics, df_anomalies, df_insights = load_analytics_datasets()
 
-if df_sales.empty:
-    st.error("⚠️ Sales dataset not found. Please execute the ETL pipeline: `python src/etl_pipeline.py`.")
+if df_sales.empty or "Order_Date" not in df_sales.columns:
+    st.error("⚠️ Sales dataset is missing or incomplete. A demo dataset has been created; if you want production data, run `python src/etl_pipeline.py`.")
     st.stop()
 
 
