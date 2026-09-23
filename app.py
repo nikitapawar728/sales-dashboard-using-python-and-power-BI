@@ -185,11 +185,30 @@ PROFILE_FILE.parent.mkdir(parents=True, exist_ok=True)
 
 
 def ensure_profile_file():
-    if not PROFILE_FILE.exists():
-        empty_df = pd.DataFrame(columns=[
+    profile_columns = [
             "username", "full_name", "email", "password", "role", "created_at"
-        ])
-        empty_df.to_csv(PROFILE_FILE, index=False)
+    ]
+    if not PROFILE_FILE.exists() or PROFILE_FILE.stat().st_size == 0:
+        pd.DataFrame([{
+            "username": "admin",
+            "full_name": "System Administrator",
+            "email": "admin@example.com",
+            "password": "admin123",
+            "role": "Admin",
+            "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        }], columns=profile_columns).to_csv(PROFILE_FILE, index=False)
+        return
+    profiles = pd.read_csv(PROFILE_FILE)
+    if "username" not in profiles.columns or not (profiles["username"].astype(str).str.lower() == "admin").any():
+        profiles = pd.concat([profiles, pd.DataFrame([{
+            "username": "admin",
+            "full_name": "System Administrator",
+            "email": "admin@example.com",
+            "password": "admin123",
+            "role": "Admin",
+            "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        }])], ignore_index=True)
+        profiles.to_csv(PROFILE_FILE, index=False)
 
 
 def load_profiles():
@@ -201,6 +220,9 @@ def load_profiles():
         if required_col not in profiles_df.columns:
             profiles_df[required_col] = ""
     return profiles_df
+
+
+ensure_profile_file()
 
 
 def save_profiles(profiles_df):
@@ -228,7 +250,7 @@ def login_flow():
 
         col_login, col_guest = st.columns([1, 1])
         with col_login:
-            if st.button("Login", use_container_width=True):
+            if st.button("Login", key="auth_login_submit", use_container_width=True):
                 if not username.strip() or not password.strip():
                     st.warning("Please enter both username and password.")
                 else:
@@ -251,7 +273,7 @@ def login_flow():
                         st.rerun()
 
         with col_guest:
-            if st.button("Continue as Guest", use_container_width=True):
+            if st.button("Continue as Guest", key="auth_guest_submit", use_container_width=True):
                 st.session_state.user = None
                 st.session_state.guest_mode = True
                 st.rerun()
@@ -438,7 +460,11 @@ with st.sidebar:
                 current = profile_match.iloc[0]
                 updated_name = st.text_input("Full Name", value=current.get("full_name", ""), key="sidebar_name")
                 updated_email = st.text_input("Email", value=current.get("email", ""), key="sidebar_email")
-                updated_role = st.selectbox("Role", ["Viewer", "Manager", "Analyst"], index=["Viewer", "Manager", "Analyst"].index(current.get("role", "Viewer")), key="sidebar_role")
+                role_options = ["Viewer", "Manager", "Analyst", "Admin"]
+                current_role = current.get("role", "Viewer")
+                if current_role not in role_options:
+                    current_role = "Viewer"
+                updated_role = st.selectbox("Role", role_options, index=role_options.index(current_role), key="sidebar_role")
                 if st.button("Save profile changes", use_container_width=True):
                     user_idx = profiles.index[profiles["username"].astype(str).str.lower() == st.session_state.user["username"].strip().lower()].tolist()
                     if user_idx:
