@@ -330,11 +330,30 @@ def load_analytics_datasets():
     insights_path = PROCESSED_DATA_DIR / "business_insights.csv"
 
     master_df = read_csv_safely(master_path, columns=SALES_REQUIRED_COLUMNS)
-    rfm_df = read_csv_safely(rfm_path)
-    forecast_df = read_csv_safely(forecast_path)
-    metrics_df = read_csv_safely(metrics_path)
-    anomalies_df = read_csv_safely(anomalies_path)
-    insights_df = read_csv_safely(insights_path)
+    rfm_df = read_csv_safely(
+        rfm_path,
+        columns=["Segment_Label", "Customer_ID", "Monetary", "Frequency"],
+    )
+    forecast_df = read_csv_safely(
+        forecast_path,
+        columns=[
+            "is_forecast", "forecast_date", "projected_sales", "actual_sales",
+            "lower_confidence_bound", "upper_confidence_bound"
+        ],
+    )
+    metrics_df = read_csv_safely(metrics_path, columns=["model_name", "mae", "rmse", "r2"])
+    anomalies_df = read_csv_safely(
+        anomalies_path,
+        columns=[
+            "is_anomaly", "Net_Sales", "Profit_Margin_Pct", "Order_ID",
+            "Product_Name", "anomaly_reason", "Order_Date", "Customer_Name",
+            "Quantity", "Discount_Pct", "Profit"
+        ],
+    )
+    insights_df = read_csv_safely(
+        insights_path,
+        columns=["Severity", "Category", "Title", "Insight"],
+    )
 
     numeric_columns = [
         "Quantity", "Unit_Price", "Discount_Pct", "Net_Sales",
@@ -358,6 +377,19 @@ def load_analytics_datasets():
         forecast_df["forecast_date"] = pd.to_datetime(
             forecast_df["forecast_date"], errors="coerce"
         )
+        for column in [
+            "is_forecast", "projected_sales", "actual_sales",
+            "lower_confidence_bound", "upper_confidence_bound"
+        ]:
+            forecast_df[column] = pd.to_numeric(forecast_df[column], errors="coerce")
+        forecast_df = forecast_df.dropna(subset=["forecast_date"]).copy()
+
+    for column in [
+        "is_anomaly", "Net_Sales", "Profit_Margin_Pct", "Quantity",
+        "Discount_Pct", "Profit"
+    ]:
+        if column in anomalies_df.columns:
+            anomalies_df[column] = pd.to_numeric(anomalies_df[column], errors="coerce")
 
     return master_df, rfm_df, forecast_df, metrics_df, anomalies_df, insights_df
 
@@ -1055,85 +1087,90 @@ with tab7:
         hist_s = df_forecast[df_forecast["is_forecast"] == 0].sort_values("forecast_date").tail(180)
         fut_s = df_forecast[df_forecast["is_forecast"] == 1].sort_values("forecast_date")
 
-        next30 = fut_s.head(30)["projected_sales"].sum()
-        next60 = fut_s.head(60)["projected_sales"].sum()
-        next90 = fut_s["projected_sales"].sum()
+        if fut_s.empty:
+            st.info("No future forecast records are available. Run the ETL pipeline to generate forecasts.")
+        else:
+            next30 = fut_s.head(30)["projected_sales"].sum()
+            next60 = fut_s.head(60)["projected_sales"].sum()
+            next90 = fut_s["projected_sales"].sum()
 
-        fc_col1, fc_col2, fc_col3 = st.columns(3)
-        with fc_col1:
-            st.markdown(f"""
-            <div class="kpi-card">
-                <div class="kpi-title">📅 Next 30-Day Forecast</div>
-                <div class="kpi-value">{format_money(next30)}</div>
-                <div class="kpi-badge badge-blue">Expected 1-Month Revenue</div>
-            </div>
-            """, unsafe_allow_html=True)
-        with fc_col2:
-            st.markdown(f"""
-            <div class="kpi-card">
-                <div class="kpi-title">📅 Next 60-Day Forecast</div>
-                <div class="kpi-value">{format_money(next60)}</div>
-                <div class="kpi-badge badge-green">Expected 2-Month Revenue</div>
-            </div>
-            """, unsafe_allow_html=True)
-        with fc_col3:
-            st.markdown(f"""
-            <div class="kpi-card">
-                <div class="kpi-title">🔮 Next 90-Day Forecast</div>
-                <div class="kpi-value">{format_money(next90)}</div>
-                <div class="kpi-badge badge-purple">Quarterly ML Projection</div>
-            </div>
-            """, unsafe_allow_html=True)
+            fc_col1, fc_col2, fc_col3 = st.columns(3)
+            with fc_col1:
+                st.markdown(f"""
+                <div class="kpi-card">
+                    <div class="kpi-title">📅 Next 30-Day Forecast</div>
+                    <div class="kpi-value">{format_money(next30)}</div>
+                    <div class="kpi-badge badge-blue">Expected 1-Month Revenue</div>
+                </div>
+                """, unsafe_allow_html=True)
+            with fc_col2:
+                st.markdown(f"""
+                <div class="kpi-card">
+                    <div class="kpi-title">📅 Next 60-Day Forecast</div>
+                    <div class="kpi-value">{format_money(next60)}</div>
+                    <div class="kpi-badge badge-green">Expected 2-Month Revenue</div>
+                </div>
+                """, unsafe_allow_html=True)
+            with fc_col3:
+                st.markdown(f"""
+                <div class="kpi-card">
+                    <div class="kpi-title">🔮 Next 90-Day Forecast</div>
+                    <div class="kpi-value">{format_money(next90)}</div>
+                    <div class="kpi-badge badge-purple">Quarterly ML Projection</div>
+                </div>
+                """, unsafe_allow_html=True)
 
-        st.markdown("<br>", unsafe_allow_html=True)
+            st.markdown("<br>", unsafe_allow_html=True)
 
-        fig_fc = go.Figure()
-        fig_fc.add_trace(go.Scatter(
-            x=fut_s["forecast_date"],
-            y=fut_s["upper_confidence_bound"] * curr_rate,
-            mode="lines",
-            line=dict(width=0),
-            showlegend=False
-        ))
-        fig_fc.add_trace(go.Scatter(
-            x=fut_s["forecast_date"],
-            y=fut_s["lower_confidence_bound"] * curr_rate,
-            mode="lines",
-            line=dict(width=0),
-            fill="tonexty",
-            fillcolor="rgba(37, 99, 235, 0.15)",
-            name="95% Confidence Interval"
-        ))
-        fig_fc.add_trace(go.Scatter(
-            x=hist_s["forecast_date"],
-            y=hist_s["actual_sales"] * curr_rate,
-            mode="lines",
-            line=dict(color="#64748B", width=2),
-            name="Historical Daily Actuals"
-        ))
-        fig_fc.add_trace(go.Scatter(
-            x=fut_s["forecast_date"],
-            y=fut_s["projected_sales"] * curr_rate,
-            mode="lines+markers",
-            line=dict(color="#2563EB", width=2.5, dash="dash"),
-            marker=dict(size=4),
-            name="AI ML Projected Sales"
-        ))
-        fig_fc.update_layout(
-            title="<b>Historical Daily Sales vs. 90-Day ML Projection</b>",
-            xaxis_title="Date",
-            yaxis_title=f"Sales ({curr_symbol})",
-            template="plotly_white",
-            height=400,
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-            margin=dict(l=20, r=20, t=50, b=20)
-        )
-        st.plotly_chart(fig_fc, use_container_width=True)
+            fig_fc = go.Figure()
+            fig_fc.add_trace(go.Scatter(
+                x=fut_s["forecast_date"],
+                y=fut_s["upper_confidence_bound"] * curr_rate,
+                mode="lines",
+                line=dict(width=0),
+                showlegend=False
+            ))
+            fig_fc.add_trace(go.Scatter(
+                x=fut_s["forecast_date"],
+                y=fut_s["lower_confidence_bound"] * curr_rate,
+                mode="lines",
+                line=dict(width=0),
+                fill="tonexty",
+                fillcolor="rgba(37, 99, 235, 0.15)",
+                name="95% Confidence Interval"
+            ))
+            fig_fc.add_trace(go.Scatter(
+                x=hist_s["forecast_date"],
+                y=hist_s["actual_sales"] * curr_rate,
+                mode="lines",
+                line=dict(color="#64748B", width=2),
+                name="Historical Daily Actuals"
+            ))
+            fig_fc.add_trace(go.Scatter(
+                x=fut_s["forecast_date"],
+                y=fut_s["projected_sales"] * curr_rate,
+                mode="lines+markers",
+                line=dict(color="#2563EB", width=2.5, dash="dash"),
+                marker=dict(size=4),
+                name="AI ML Projected Sales"
+            ))
+            fig_fc.update_layout(
+                title="<b>Historical Daily Sales vs. 90-Day ML Projection</b>",
+                xaxis_title="Date",
+                yaxis_title=f"Sales ({curr_symbol})",
+                template="plotly_white",
+                height=400,
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                margin=dict(l=20, r=20, t=50, b=20)
+            )
+            st.plotly_chart(fig_fc, use_container_width=True)
 
-        # Model Benchmark Table
-        if not df_metrics.empty:
-            st.markdown("#### 🤖 Machine Learning Model Benchmark Comparison")
-            st.dataframe(df_metrics, use_container_width=True, hide_index=True)
+            # Model Benchmark Table
+            if not df_metrics.empty:
+                st.markdown("#### 🤖 Machine Learning Model Benchmark Comparison")
+                st.dataframe(df_metrics, use_container_width=True, hide_index=True)
+    else:
+        st.info("No forecast data is available. Run the ETL pipeline to generate AI forecasts.")
 
 
 # =============================================================================
@@ -1218,6 +1255,8 @@ with tab9:
         anomaly_disp["Discount_Pct"] = (anomaly_disp["Discount_Pct"] * 100).map("{:.1f}%".format)
         anomaly_disp["Profit_Margin_Pct"] = anomaly_disp["Profit_Margin_Pct"].map("{:.1f}%".format)
         st.dataframe(anomaly_disp, use_container_width=True, hide_index=True)
+    else:
+        st.info("No anomaly results are available. Run the ETL pipeline to generate anomaly detection results.")
 
 
 # =============================================================================

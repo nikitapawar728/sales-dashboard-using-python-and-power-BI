@@ -1,1 +1,1 @@
-
+is_forecast,forecast_date,projected_sales,actual_sales,lower_confidence_bound,upper_confidence_bound

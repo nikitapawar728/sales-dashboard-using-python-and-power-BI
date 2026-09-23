@@ -61,9 +61,35 @@ SALES_REQUIRED_COLUMNS = [
 ]
 
 
+def ensure_csv_header(path, columns):
+    """Create a canonical header when a generated CSV is missing or blank."""
+    try:
+        existing_columns = pd.read_csv(path, nrows=0).columns.tolist()
+    except (FileNotFoundError, pd.errors.EmptyDataError):
+        existing_columns = []
+    if not existing_columns:
+        pd.DataFrame(columns=columns).to_csv(path, index=False)
+
+
 def ensure_demo_data():
     """Create a sample sales dataset covering every column the dashboard expects."""
+    empty_files = [
+        (RFM_SEGMENTS_FILE, ["Segment_Label", "Customer_ID", "Monetary", "Frequency"]),
+        (FORECAST_FILE, [
+            "is_forecast", "forecast_date", "projected_sales", "actual_sales",
+            "lower_confidence_bound", "upper_confidence_bound"
+        ]),
+        (MODEL_METRICS_FILE, ["model_name", "mae", "rmse", "r2"]),
+        (ANOMALIES_FILE, [
+            "is_anomaly", "Net_Sales", "Profit_Margin_Pct", "Order_ID",
+            "Product_Name", "anomaly_reason", "Order_Date", "Customer_Name",
+            "Quantity", "Discount_Pct", "Profit"
+        ]),
+        (INSIGHTS_FILE, ["Severity", "Category", "Title", "Insight"]),
+    ]
     if MASTER_SALES_FILE.exists() and MASTER_SALES_FILE.stat().st_size > 0:
+        for path, columns in empty_files:
+            ensure_csv_header(path, columns)
         return
 
     dates = pd.date_range(end=pd.Timestamp.today().normalize(), periods=45, freq="D")
@@ -133,16 +159,8 @@ def ensure_demo_data():
     demo_df = demo_df[SALES_REQUIRED_COLUMNS]
     demo_df.to_csv(MASTER_SALES_FILE, index=False)
 
-    empty_files = [
-        (RFM_SEGMENTS_FILE, ["customer_id", "segment", "score"]),
-        (FORECAST_FILE, ["forecast_date", "sales", "lower_bound", "upper_bound"]),
-        (MODEL_METRICS_FILE, ["model_name", "mae", "rmse", "r2"]),
-        (ANOMALIES_FILE, ["order_id", "anomaly_score", "flagged"]),
-        (INSIGHTS_FILE, ["insight_id", "category", "message", "severity"]),
-    ]
     for path, columns in empty_files:
-        if not path.exists() or path.stat().st_size == 0:
-            pd.DataFrame(columns=columns).to_csv(path, index=False)
+        ensure_csv_header(path, columns)
 
 
 def ensure_power_bi_assets():
